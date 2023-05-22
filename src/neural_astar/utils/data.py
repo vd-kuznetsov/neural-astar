@@ -280,6 +280,7 @@ class WarCraftDataset(data.Dataset):
             (np.load(f"{dirname}/{split}_maps.npy").transpose(0, 3, 1, 2) / 255.0)
         ).astype(np.float32)
         self.paths = np.load(f"{dirname}/{split}_shortest_paths.npy").astype(np.float32)
+        self.vertex = np.load(f"{dirname}/{split}_vertex_weights.npy").astype(np.float32)
 
     def __getitem__(self, index: int):
         map_design = self.map_designs[index]
@@ -289,7 +290,7 @@ class WarCraftDataset(data.Dataset):
         goal_map = np.zeros_like(opt_traj)
         goal_map[:, -1, -1] = 1
 
-        return map_design, start_map, goal_map, opt_traj
+        return map_design, start_map, goal_map, opt_traj, self.vertex[index][np.newaxis]
 
     def __len__(self):
         return self.map_designs.shape[0]
