@@ -53,18 +53,52 @@ class PlannerModule(pl.LightningModule):
         return torch.optim.RMSprop(self.planner.parameters(), self.config.params.lr)
 
     def training_step(self, train_batch, batch_idx):
-        map_designs, start_maps, goal_maps, opt_trajs = train_batch
+        map_designs, start_maps, goal_maps, opt_trajs, _ = train_batch
         outputs = self.forward(map_designs, start_maps, goal_maps)
         loss = nn.L1Loss()(outputs.histories, opt_trajs)
         self.log("metrics/train_loss", loss)
 
         return loss
 
+    def all_accuracies(self, true_labels, suggested_labels, true_costs, num_thresholds, minimize=True):
+        num_examples = len(true_labels)
+        valid = 0
+        meets_threshold = [0] * num_thresholds
+        for true_label, suggested_label, true_cost in zip(true_labels, suggested_labels, true_costs):
+            valid += 1
+            cost_ratio = np.sum(suggested_label * true_cost) / np.sum(true_label * true_cost)
+            if not minimize:
+                cost_ratio = 1.0 / cost_ratio
+
+            assert cost_ratio > 0.99  # cost is not better than optimal...
+
+            for i in range(len(meets_threshold)):
+                if cost_ratio - 1.0 < 10.0 ** (-i-1):
+                    meets_threshold[i] += 1
+
+        threshold_dict = {f"below_{10. ** (1-i)}_percent_acc": val / num_examples for i, val in enumerate(meets_threshold)}
+        threshold_dict['valid_acc'] = valid / num_examples
+        for key, value in threshold_dict.items():
+            self.log(key, value)
+
     def validation_step(self, val_batch, batch_idx):
-        map_designs, start_maps, goal_maps, opt_trajs = val_batch
+        map_designs, start_maps, goal_maps, opt_trajs, opt_vertex = val_batch
         outputs = self.forward(map_designs, start_maps, goal_maps)
         loss = nn.L1Loss()(outputs.histories, opt_trajs)
 
+        path_optimal = opt_trajs.detach().cpu().numpy()
+        path_model = outputs.paths.detach().cpu().numpy()
+        vertex_optimal = opt_vertex.detach().cpu().numpy()
+
+        # perfect_match_accuracy
+        matching_correct = np.sum(np.abs(path_optimal - path_model), axis=-1)
+        avg_matching_correct = (matching_correct < 0.5).mean()
+
+        # cost_ratio
+        #cost_ratio = (np.sum(path_model * vertex_optimal, axis=1) / np.sum(path_optimal * vertex_optimal, axis=1)).mean()
+
+        self.all_accuracies(path_optimal, path_model, vertex_optimal, 6)
+        self.log("metrics/val_perfect_match_accuracy", avg_matching_correct)
         self.log("metrics/val_loss", loss)
 
         # For shortest path problems:
