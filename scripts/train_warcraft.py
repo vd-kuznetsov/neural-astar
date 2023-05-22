@@ -9,10 +9,12 @@ import os
 import hydra
 import pytorch_lightning as pl
 import torch
+import wandb
 from neural_astar.planner import NeuralAstar
 from neural_astar.utils.data import create_warcraft_dataloader
 from neural_astar.utils.training import PlannerModule, set_global_seeds
 from pytorch_lightning.callbacks import ModelCheckpoint
+from pytorch_lightning.loggers import WandbLogger
 
 
 @hydra.main(config_path="config", config_name="train_warcraft")
@@ -41,14 +43,17 @@ def main(config):
 
     module = PlannerModule(neural_astar, config)
     logdir = f"{config.logdir}/{os.path.basename(config.dataset)}"
+    wandb_logger = WandbLogger(project='Neural_A_star')
     trainer = pl.Trainer(
         accelerator="gpu" if torch.cuda.is_available() else "cpu",
         log_every_n_steps=1,
         default_root_dir=logdir,
         max_epochs=config.params.num_epochs,
         callbacks=[checkpoint_callback],
+        logger=wandb_logger,
     )
     trainer.fit(module, train_loader, val_loader)
+    wandb.finish()
 
 
 if __name__ == "__main__":
